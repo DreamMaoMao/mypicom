@@ -1436,6 +1436,9 @@ void win_on_win_size_change(session_t *ps, struct managed_win *w) {
 	win_set_flags(w, WIN_FLAGS_IMAGES_STALE);
 	ps->pending_updates = true;
 	free_paint(ps, &w->shadow_paint);
+
+	//set rounded corners when fullscreen window exit fullscreen state
+	win_determine_rounded_corners(ps, w);
 }
 
 /**
