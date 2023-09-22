@@ -504,6 +504,18 @@ void set_default_winopts(options_t *opt, win_option_mask_t *mask, bool shadow_en
 			mask[i].animation = OPEN_WINDOW_ANIMATION_INVALID;
 			opt->wintype_option[i].animation = OPEN_WINDOW_ANIMATION_INVALID;
 		}
+		if (!mask[i].animation_unmap) {
+			mask[i].animation_unmap = OPEN_WINDOW_ANIMATION_INVALID;
+			opt->wintype_option[i].animation_unmap = OPEN_WINDOW_ANIMATION_INVALID;
+		}
+		if (!mask[i].animation_workspace_in) {
+			mask[i].animation_workspace_in = OPEN_WINDOW_ANIMATION_INVALID;
+			opt->wintype_option[i].animation_workspace_in = OPEN_WINDOW_ANIMATION_INVALID;
+		}
+		if (!mask[i].animation_workspace_out) {
+			mask[i].animation_workspace_out = OPEN_WINDOW_ANIMATION_INVALID;
+			opt->wintype_option[i].animation_workspace_out = OPEN_WINDOW_ANIMATION_INVALID;
+		}
 		if (!mask[i].clip_shadow_above) {
 			mask[i].clip_shadow_above = true;
 			opt->wintype_option[i].clip_shadow_above = false;
@@ -514,6 +526,8 @@ void set_default_winopts(options_t *opt, win_option_mask_t *mask, bool shadow_en
 enum open_window_animation parse_open_window_animation(const char *src) {
 	if (strcmp(src, "none") == 0) {
 		return OPEN_WINDOW_ANIMATION_NONE;
+	}else if (strcmp(src, "auto") == 0) {
+		return OPEN_WINDOW_ANIMATION_AUTO;
 	} else if (strcmp(src, "fly-in") == 0) {
 		return OPEN_WINDOW_ANIMATION_FLYIN;
 	} else if (strcmp(src, "zoom") == 0) {
@@ -526,22 +540,7 @@ enum open_window_animation parse_open_window_animation(const char *src) {
 		return OPEN_WINDOW_ANIMATION_SLIDE_LEFT;
 	} else if (strcmp(src, "slide-right") == 0) {
 		return OPEN_WINDOW_ANIMATION_SLIDE_RIGHT;
-	} else if (strcmp(src, "slide-out") == 0) {
-        return OPEN_WINDOW_ANIMATION_SLIDE_OUT;
-    } else if (strcmp(src, "slide-in") == 0) {
-        return OPEN_WINDOW_ANIMATION_SLIDE_IN;
-    } else if (strcmp(src, "slide-out-center") == 0) {
-        return OPEN_WINDOW_ANIMATION_SLIDE_OUT_CENTER;
-    } else if (strcmp(src, "slide-in-center") == 0) {
-        return OPEN_WINDOW_ANIMATION_SLIDE_IN_CENTER;
-    } else if (strcmp(src, "minimize") == 0 || strcmp(src, "maximize") == 0) {
-        return OPEN_WINDOW_ANIMATION_MINIMIZE;
-    } else if (strcmp(src, "squeeze") == 0) {
-        return OPEN_WINDOW_ANIMATION_SQUEEZE;
-    } else if (strcmp(src, "squeeze-bottom") == 0) {
-        return OPEN_WINDOW_ANIMATION_SQUEEZE_BOTTOM;
-    }
-
+	}
 	return OPEN_WINDOW_ANIMATION_INVALID;
 }
 
@@ -565,6 +564,8 @@ char *parse_config(options_t *opt, const char *config_file, bool *shadow_enable,
 	    .benchmark_wid = XCB_NONE,
 	    .logpath = NULL,
 
+	    .refresh_rate = 0,
+	    .sw_opti = false,
 	    .use_damage = true,
 
 	    .shadow_red = 0.0,
@@ -591,13 +592,14 @@ char *parse_config(options_t *opt, const char *config_file, bool *shadow_enable,
 	    .animations = false,
 	    .animation_for_open_window = OPEN_WINDOW_ANIMATION_NONE,
 	    .animation_for_transient_window = OPEN_WINDOW_ANIMATION_NONE,
-        .animation_for_unmap_window = OPEN_WINDOW_ANIMATION_NONE,
-        .animation_for_next_tag = OPEN_WINDOW_ANIMATION_NONE,
-        .animation_for_prev_tag = OPEN_WINDOW_ANIMATION_NONE,
+	    .animation_for_unmap_window = OPEN_WINDOW_ANIMATION_AUTO,
+	    .animation_for_workspace_switch_in = OPEN_WINDOW_ANIMATION_AUTO,
+	    .animation_for_workspace_switch_out = OPEN_WINDOW_ANIMATION_AUTO,
 	    .animation_stiffness = 200.0,
-	    .animation_stiffness_tag_change = 200.0,
 	    .animation_window_mass = 1.0,
 	    .animation_dampening = 25,
+	    .animation_delta = 10,
+	    .animation_force_steps = false,
 	    .animation_clamping = true,
 
 	    .inactive_opacity = 1.0,
@@ -629,8 +631,7 @@ char *parse_config(options_t *opt, const char *config_file, bool *shadow_enable,
 
 	    .track_leader = false,
 
-	    .rounded_corners_blacklist = NULL,
-	    .animation_blacklist = NULL
+	    .rounded_corners_blacklist = NULL
 	};
 	// clang-format on
 

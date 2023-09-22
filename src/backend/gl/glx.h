@@ -55,7 +55,6 @@ struct glxext_info {
 	bool has_GLX_ARB_create_context;
 	bool has_GLX_EXT_buffer_age;
 	bool has_GLX_MESA_query_renderer;
-	bool has_GLX_ARB_create_context_robustness;
 };
 
 extern struct glxext_info glxext;

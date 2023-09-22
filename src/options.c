@@ -86,6 +86,33 @@ static void usage(const char *argv0, int ret) {
 	    "  `slide-down`, `slide-up`, `slide-left`, `slide-right`\n"
 	    "  (default: none).\n"
 	    "\n"
+	    "--animation-for-unmap-window\n"
+	    "  Which animation to run when hiding (e.g. minimize) a window.\n"
+	    "  Must be one of `auto`, `none`, `fly-in`, `zoom`,\n"
+	    "  `slide-down`, `slide-up`, `slide-left`, `slide-right`\n"
+	    "  `slide-in`, `slide-out`\n"
+	    "  (default: auto).\n"
+	    "\n"
+	    "--animation-for-workspace-switch-in\n"
+	    "  Which animation to run on switching workspace for windows\n"
+	    "  comming into view.\n"
+	    "  IMPORTANT: window manager must set _NET_CURRENT_DESKTOP\n"
+	    "  before doing the hide/show of windows\n"
+	    "  Must be one of `auto`, `none`, `fly-in`, `zoom`,\n"
+	    "  `slide-down`, `slide-up`, `slide-left`, `slide-right`\n"
+	    "  `slide-in`, `slide-out`\n"
+	    "  (default: auto).\n"
+	    "\n"
+	    "--animation-for-workspace-switch-out\n"
+	    "  Which animation to run on switching workspace for windows\n"
+	    "  going out of view.\n"
+	    "  IMPORTANT: window manager must set _NET_CURRENT_DESKTOP\n"
+	    "  before doing the hide/show of windows\n"
+	    "  Must be one of `auto`, `none`, `fly-in`, `zoom`,\n"
+	    "  `slide-down`, `slide-up`, `slide-left`, `slide-right`\n"
+	    "  `slide-in`, `slide-out`\n"
+	    "  (default: auto).\n"
+	    "\n"
 	    "--animation-stiffness\n"
 	    "  Stiffness (a.k.a. tension) parameter for animation (default: 200.0).\n"
 	    "\n"
@@ -94,6 +121,13 @@ static void usage(const char *argv0, int ret) {
 	    "\n"
 	    "--animation-window-mass\n"
 	    "  Mass parameter for animation (default: 1.0).\n"
+	    "\n"
+	    "--animation-delta\n"
+	    "  The time between steps in animation, in milliseconds. (> 0, defaults to 10).\n"
+	    "\n"
+	    "--animation-force-steps\n"
+	    "  Force animations to go step by step even if cpu usage is high \n"
+	    "  (default: false)\n"
 	    "\n"
 	    "--animation-clamping\n"
 	    "  Whether to clamp animations (default: true)\n"
@@ -139,7 +173,7 @@ static void usage(const char *argv0, int ret) {
 	    "  Blue color value of shadow (0.0 - 1.0, defaults to 0).\n"
 	    "\n"
 	    "--inactive-opacity-override\n"
-	    "  Inactive opacity set by -i overrides value of _NET_WM_WINDOW_OPACITY.\n"
+	    "  Inactive opacity set by -i overrides value of _NET_WM_OPACITY.\n"
 	    "\n"
 	    "--inactive-dim value\n"
 	    "  Dim inactive windows. (0.0 - 1.0, defaults to 0)\n"
@@ -186,12 +220,19 @@ static void usage(const char *argv0, int ret) {
 	    "  conditions.\n"
 	    "\n"
 	    "--detect-client-opacity\n"
-	    "  Detect _NET_WM_WINDOW_OPACITY on client windows, useful for window\n"
-	    "  managers not passing _NET_WM_WINDOW_OPACITY of client windows to frame\n"
+	    "  Detect _NET_WM_OPACITY on client windows, useful for window\n"
+	    "  managers not passing _NET_WM_OPACITY of client windows to frame\n"
 	    "  windows.\n"
+	    "\n"
+	    "--refresh-rate val\n"
+	    "  Specify refresh rate of the screen. If not specified or 0, we\n"
+	    "  will try detecting this with X RandR extension.\n"
 	    "\n"
 	    "--vsync\n"
 	    "  Enable VSync\n"
+	    "\n"
+	    "--paint-on-overlay\n"
+	    "  Painting on X Composite overlay window.\n"
 	    "\n"
 	    "--use-ewmh-active-win\n"
 	    "  Use _NET_WM_ACTIVE_WINDOW on the root window to determine which\n"
@@ -227,10 +268,8 @@ static void usage(const char *argv0, int ret) {
 	    "\n"
 	    "--detect-client-leader\n"
 	    "  Use WM_CLIENT_LEADER to group windows, and consider windows in\n"
-	    "  the same group focused at the same time. This usually means windows\n"
-	    "  from the same application will be considered focused or unfocused at\n"
-	    "  the same time. WM_TRANSIENT_FOR has higher priority if\n"
-	    "  --detect-transient is enabled, too.\n"
+	    "  the same group focused at the same time. WM_TRANSIENT_FOR has\n"
+	    "  higher priority if --detect-transient is enabled, too.\n"
 	    "\n"
 	    "--blur-method\n"
 	    "  The algorithm used for background bluring. Available choices are:\n"
@@ -382,7 +421,7 @@ static void usage(const char *argv0, int ret) {
 #undef WARNING_DISABLED
 }
 
-static const char *shortopts = "D:I:O:r:o:m:l:t:i:e:hscnfFCazGb";
+static const char *shortopts = "D:I:O:d:r:o:m:l:t:i:e:hscnfFCaSzGb";
 static const struct option longopts[] = {
     {"help", no_argument, NULL, 'h'},
     {"config", required_argument, NULL, 256},
@@ -395,11 +434,13 @@ static const struct option longopts[] = {
     {"fade-delta", required_argument, NULL, 'D'},
     {"menu-opacity", required_argument, NULL, 'm'},
     {"shadow", no_argument, NULL, 'c'},
+    {"no-dock-shadow", no_argument, NULL, 'C'},
     {"clear-shadow", no_argument, NULL, 'z'},
     {"fading", no_argument, NULL, 'f'},
     {"inactive-opacity", required_argument, NULL, 'i'},
     {"frame-opacity", required_argument, NULL, 'e'},
     {"daemon", no_argument, NULL, 'b'},
+    {"no-dnd-shadow", no_argument, NULL, 'G'},
     {"shadow-red", required_argument, NULL, 257},
     {"shadow-green", required_argument, NULL, 258},
     {"shadow-blue", required_argument, NULL, 259},
@@ -414,6 +455,9 @@ static const struct option longopts[] = {
     {"detect-client-opacity", no_argument, NULL, 268},
     {"refresh-rate", required_argument, NULL, 269},
     {"vsync", optional_argument, NULL, 270},
+    {"alpha-step", required_argument, NULL, 271},
+    {"dbe", no_argument, NULL, 272},
+    {"paint-on-overlay", no_argument, NULL, 273},
     {"sw-opti", no_argument, NULL, 274},
     {"vsync-aggressive", no_argument, NULL, 275},
     {"use-ewmh-active-win", no_argument, NULL, 276},
@@ -450,6 +494,7 @@ static const struct option longopts[] = {
     {"unredir-if-possible-delay", required_argument, NULL, 309},
     {"write-pid-path", required_argument, NULL, 310},
     {"vsync-use-glfinish", no_argument, NULL, 311},
+    {"xrender-sync", no_argument, NULL, 312},
     {"xrender-sync-fence", no_argument, NULL, 313},
     {"show-all-xerrors", no_argument, NULL, 314},
     {"no-fading-destroyed-argb", no_argument, NULL, 315},
@@ -457,6 +502,7 @@ static const struct option longopts[] = {
     {"glx-fshader-win", required_argument, NULL, 317},
     {"version", no_argument, NULL, 318},
     {"no-x-selection", no_argument, NULL, 319},
+    {"no-name-pixmap", no_argument, NULL, 320},
     {"log-level", required_argument, NULL, 321},
     {"log-file", required_argument, NULL, 322},
     {"use-damage", no_argument, NULL, 323},
@@ -478,13 +524,12 @@ static const struct option longopts[] = {
     {"debug-mode", no_argument, NULL, 802},
     {"no-ewmh-fullscreen", no_argument, NULL, 803},
     {"animations", no_argument, NULL, 804},
-    {"animation-stiffness-in-tag", required_argument, NULL, 805},
-    {"animation-stiffness-tag-change", required_argument, NULL, 806},
-    {"animation-dampening", required_argument, NULL, 807},
-    {"animation-window-mass", required_argument, NULL, 808},
-    {"animation-clamping", no_argument, NULL, 809},
-    {"animation-for-open-window", required_argument, NULL, 810},
-    {"animation-for-transient-window", required_argument, NULL, 811},
+    {"animation-stiffness", required_argument, NULL, 805},
+    {"animation-dampening", required_argument, NULL, 806},
+    {"animation-window-mass", required_argument, NULL, 807},
+    {"animation-clamping", no_argument, NULL, 808},
+    {"animation-for-open-window", required_argument, NULL, 809},
+    {"animation-for-transient-window", required_argument, NULL, 810},
     // Must terminate with a NULL entry
     {NULL, 0, NULL, 0},
 };
@@ -511,11 +556,21 @@ bool get_early_config(int argc, char *const *argv, char **config_file, bool *all
 
 		} else if (o == 'b') {
 			*fork = true;
+		} else if (o == 'd') {
+			log_error("-d is removed, please use the DISPLAY "
+			          "environment variable");
+			goto err;
 		} else if (o == 314) {
 			*all_xerrors = true;
 		} else if (o == 318) {
 			printf("%s\n", COMPTON_VERSION);
 			return true;
+		} else if (o == 'S') {
+			log_error("-S is no longer available");
+			goto err;
+		} else if (o == 320) {
+			log_error("--no-name-pixmap is no longer available");
+			goto err;
 		} else if (o == '?' || o == ':') {
 			usage(argv[0], 1);
 			goto err;
@@ -584,7 +639,9 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 			// so assert(false) here
 			assert(false);
 			break;
+		case 'd':
 		case 'b':
+		case 'S':
 		case 314:
 		case 320:
 			// These options are handled by get_early_config()
@@ -593,10 +650,15 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 		case 'I': opt->fade_in_step = normalize_d(atof(optarg)); break;
 		case 'O': opt->fade_out_step = normalize_d(atof(optarg)); break;
 		case 'c': shadow_enable = true; break;
+		case 'C':
+			log_error("Option `--no-dock-shadow`/`-C` has been removed. Please"
+			          " use the wintype option `shadow` of `dock` instead.");
+			failed = true; break;
+		case 'G':
+			log_error("Option `--no-dnd-shadow`/`-G` has been removed. Please "
+			          "use the wintype option `shadow` of `dnd` instead.");
+			failed = true; break;
 		case 'm':;
-			log_warn("--menu-opacity is deprecated, and will be removed."
-			         "Please use the wintype option `opacity` of `popup_menu`"
-			         "and `dropdown_menu` instead.");
 			double tmp;
 			tmp = normalize_d(atof(optarg));
 			winopt_mask[WINTYPE_DROPDOWN_MENU].opacity = true;
@@ -668,30 +730,35 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 		P_CASEBOOL(266, shadow_ignore_shaped);
 		P_CASEBOOL(267, detect_rounded_corners);
 		P_CASEBOOL(268, detect_client_opacity);
-		case 269:
-			log_warn("--refresh-rate has been deprecated, please remove it from"
-			         "your command line options");
-			break;
+		P_CASEINT(269, refresh_rate);
 		case 270:
 			if (optarg) {
-				bool parsed_vsync = parse_vsync(optarg);
-				log_error("--vsync doesn't take argument anymore. \"%s\" "
-				          "should be changed to \"%s\"",
-				          optarg, parsed_vsync ? "true" : "false");
-				failed = true;
+				opt->vsync = parse_vsync(optarg);
+				log_warn("--vsync doesn't take argument anymore. \"%s\" "
+					 "is interpreted as \"%s\" for compatibility, but "
+					 "this will stop working soon",
+					 optarg, opt->vsync ? "true" : "false");
 			} else {
 				opt->vsync = true;
 			}
 			break;
-		case 274:
-			log_warn("--sw-opti has been deprecated, please remove it from the "
-			         "command line options");
-			break;
+		case 271:
+			// --alpha-step
+			log_error("--alpha-step has been removed, we now tries to "
+			          "make use of all alpha values");
+			failed = true; break;
+		case 272:
+			log_error("--dbe has been removed");
+			failed = true; break;
+		case 273:
+			log_error("--paint-on-overlay has been removed, the feature is enabled "
+			          "whenever possible");
+			failed = true; break;
+		P_CASEBOOL(274, sw_opti);
 		case 275:
 			// --vsync-aggressive
-			log_error("--vsync-aggressive has been removed, please remove it"
+			log_warn("--vsync-aggressive has been deprecated, please remove it"
 			         " from the command line options");
-			failed = true;
 			break;
 		P_CASEBOOL(276, use_ewmh_active_win);
 		case 277:
@@ -764,14 +831,14 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 			if (strcmp(optarg, "undefined") != 0 && tmpval != 0) {
 				// If not undefined, we will use damage and buffer-age to
 				// limit the rendering area.
+				opt->use_damage = true;
 				should_remove = false;
 			}
-			log_error("--glx-swap-method has been removed, your setting "
+			log_warn("--glx-swap-method has been deprecated, your setting "
 			         "\"%s\" should be %s.",
 			         optarg,
 			         !should_remove ? "replaced by `--use-damage`" :
 			                         "removed");
-			failed = true;
 			break;
 		}
 		case 300:
@@ -789,9 +856,8 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 		P_CASEINT(302, resize_damage);
 		case 303:
 			// --glx-use-gpushader4
-			log_error("--glx-use-gpushader4 has been removed."
+			log_warn("--glx-use-gpushader4 is deprecated since v6."
 			         " Please remove it from command line options.");
-			failed = true;
 			break;
 		case 304:
 			// --opacity-rule
@@ -824,6 +890,10 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 			}
 			break;
 		P_CASEBOOL(311, vsync_use_glfinish);
+		case 312:
+			// --xrender-sync
+			log_error("Please use --xrender-sync-fence instead of --xrender-sync");
+			failed = true; break;
 		P_CASEBOOL(313, xrender_sync_fence);
 		P_CASEBOOL(315, no_fading_destroyed_argb);
 		P_CASEBOOL(316, force_win_blend);
@@ -897,22 +967,18 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 			opt->animation_stiffness = atof(optarg);
 			break;
 		case 806:
-			// --animation-stiffness-for-tags
-			opt->animation_stiffness_tag_change = atof(optarg);
-			break;
-		case 807:
 			// --animation-dampening
 			opt->animation_dampening = atof(optarg);
 			break;
-		case 808:
+		case 807:
 			// --animation-window-masss
 			opt->animation_window_mass = atof(optarg);
 			break;
-		case 809:
+		case 808:
 			// --animation-clamping
 			opt->animation_clamping = true;
 			break;
-		case 810: {
+		case 809: {
 			// --animation-for-open-window
 			enum open_window_animation animation = parse_open_window_animation(optarg);
 			if (animation >= OPEN_WINDOW_ANIMATION_INVALID) {
@@ -922,7 +988,7 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 			}
 			break;
 		}
-		case 811: {
+		case 810: {
 			// --animation-for-transient-window
 			enum open_window_animation animation = parse_open_window_animation(optarg);
 			if (animation >= OPEN_WINDOW_ANIMATION_INVALID) {
@@ -932,7 +998,7 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 			}
 			break;
 		}
-		case 812: {
+		case 811: {
 			// --animation-exclude
 			condlst_add(&opt->animation_blacklist, optarg);
 			break;
@@ -988,6 +1054,7 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 	opt->inactive_dim = normalize_d(opt->inactive_dim);
 	opt->frame_opacity = normalize_d(opt->frame_opacity);
 	opt->shadow_opacity = normalize_d(opt->shadow_opacity);
+	opt->refresh_rate = normalize_i_range(opt->refresh_rate, 0, 300);
 
 	opt->max_brightness = normalize_d(opt->max_brightness);
 	if (opt->max_brightness < 1.0) {
@@ -1055,6 +1122,12 @@ bool get_cfg(options_t *opt, int argc, char *const *argv, bool shadow_enable,
 	if (opt->backend == BKEND_XRENDER && conv_kern_hasneg) {
 		log_warn("A convolution kernel with negative values may not work "
 		         "properly under X Render backend.");
+	}
+
+	if (opt->corner_radius > 0 && opt->experimental_backends) {
+		log_warn("Rounded corner is only supported on legacy backends, it "
+		         "will be disabled");
+		opt->corner_radius = 0;
 	}
 
 	return true;

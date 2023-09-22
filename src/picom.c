@@ -69,6 +69,8 @@
 		(session_t *)((char *)__mptr - offsetof(session_t, member));             \
 	})
 
+static const long SWOPTI_TOLERANCE = 3000;
+
 static bool must_use redirect_start(session_t *ps);
 
 static void unredirect(session_t *ps);
@@ -241,7 +243,7 @@ static double fade_timeout(session_t *ps) {
  * @param steps steps of fading
  * @return whether we are still in fading mode
  */
-static bool run_fade(session_t *ps, struct managed_win **_w, long long steps) {
+static bool run_fade(session_t *ps, struct managed_win **_w, long steps) {
 	auto w = *_w;
 	if (w->state == WSTATE_MAPPED || w->state == WSTATE_UNMAPPED) {
 		// We are not fading
@@ -558,6 +560,14 @@ static void configure_root(session_t *ps) {
 	ps->root_width = r->width;
 	ps->root_height = r->height;
 
+	auto prop = x_get_prop(ps->c, ps->root, ps->atoms->a_NET_CURRENT_DESKTOP,
+					1L, XCB_ATOM_CARDINAL, 32);
+
+	ps->root_desktop_switch_direction = 0;
+	if (prop.nitems) {
+		ps->root_desktop_num = (int)*prop.c32;
+	}
+
 	rebuild_screen_reg(ps);
 	rebuild_shadow_exclude_reg(ps);
 
@@ -609,6 +619,14 @@ static void handle_root_flags(session_t *ps) {
 		if (ps->o.xinerama_shadow_crop) {
 			cxinerama_upd_scrs(ps);
 		}
+
+		if (ps->o.sw_opti && !ps->o.refresh_rate) {
+			update_refresh_rate(ps);
+			if (!ps->refresh_rate) {
+				log_warn("Refresh rate detection failed. swopti will be "
+				         "temporarily disabled");
+			}
+		}
 		ps->root_flags &= ~(uint64_t)ROOT_FLAGS_SCREEN_CHANGE;
 	}
 
@@ -640,10 +658,17 @@ paint_preprocess(session_t *ps, bool *fade_running, bool *animation_running) {
 	}
 	ps->fade_time += steps * ps->o.fade_delta;
 
-	if (ps->o.animations && !ps->animation_time)
-		ps->animation_time = now;
+	double animation_delta = 0;
+	if (ps->o.animations) {
+		if (!ps->animation_time)
+			ps->animation_time = now;
 
-	double delta_secs = (double)(now - ps->animation_time) / 1000;
+		animation_delta = (double)(now - ps->animation_time) /
+			(ps->o.animation_delta*100);
+
+		if (ps->o.animation_force_steps)
+			animation_delta = min2(animation_delta, ps->o.animation_delta/1000);
+	}
 
 	// First, let's process fading
 	win_stack_foreach_managed_safe(w, &ps->window_stack) {
@@ -664,45 +689,36 @@ paint_preprocess(session_t *ps, bool *fade_running, bool *animation_running) {
 				w->animation_dest_center_y - w->animation_center_y;
 			double neg_displacement_w = w->animation_dest_w - w->animation_w;
 			double neg_displacement_h = w->animation_dest_h - w->animation_h;
-            double animation_stiffness = ps->o.animation_stiffness;
-            if (!(w->animation_is_tag & ANIM_IN_TAG)) {
-                if (w->animation_is_tag & ANIM_SLOW)
-                    animation_stiffness = ps->o.animation_stiffness_tag_change;
-                else if (w->animation_is_tag & ANIM_FAST)
-                    animation_stiffness = ps->o.animation_stiffness_tag_change * 1.5;
-            }
-            if (w->state == WSTATE_FADING && !(w->animation_is_tag & ANIM_FADE))
-                w->opacity_target = win_calc_opacity_target(ps, w);
 			double acceleration_x =
-				(animation_stiffness * neg_displacement_x -
+				(ps->o.animation_stiffness * neg_displacement_x -
 					ps->o.animation_dampening * w->animation_velocity_x) /
 				ps->o.animation_window_mass;
 			double acceleration_y =
-				(animation_stiffness * neg_displacement_y -
+				(ps->o.animation_stiffness * neg_displacement_y -
 					ps->o.animation_dampening * w->animation_velocity_y) /
 				ps->o.animation_window_mass;
 			double acceleration_w =
-				(animation_stiffness * neg_displacement_w -
+				(ps->o.animation_stiffness * neg_displacement_w -
 					ps->o.animation_dampening * w->animation_velocity_w) /
 				ps->o.animation_window_mass;
 			double acceleration_h =
-				(animation_stiffness * neg_displacement_h -
+				(ps->o.animation_stiffness * neg_displacement_h -
 					ps->o.animation_dampening * w->animation_velocity_h) /
 				ps->o.animation_window_mass;
-			w->animation_velocity_x += acceleration_x * delta_secs;
-			w->animation_velocity_y += acceleration_y * delta_secs;
-			w->animation_velocity_w += acceleration_w * delta_secs;
-			w->animation_velocity_h += acceleration_h * delta_secs;
+			w->animation_velocity_x += acceleration_x * animation_delta;
+			w->animation_velocity_y += acceleration_y * animation_delta;
+			w->animation_velocity_w += acceleration_w * animation_delta;
+			w->animation_velocity_h += acceleration_h * animation_delta;
 
 			// Animate window geometry
 			double new_animation_x =
-				w->animation_center_x + w->animation_velocity_x * delta_secs;
+				w->animation_center_x + w->animation_velocity_x * animation_delta;
 			double new_animation_y =
-				w->animation_center_y + w->animation_velocity_y * delta_secs;
+				w->animation_center_y + w->animation_velocity_y * animation_delta;
 			double new_animation_w =
-				w->animation_w + w->animation_velocity_w * delta_secs;
+				w->animation_w + w->animation_velocity_w * animation_delta;
 			double new_animation_h =
-				w->animation_h + w->animation_velocity_h * delta_secs;
+				w->animation_h + w->animation_velocity_h * animation_delta;
 
 			// Negative new width/height causes segfault and it can happen
 			// when clamping disabled and shading a window
@@ -775,18 +791,6 @@ paint_preprocess(session_t *ps, bool *fade_running, bool *animation_running) {
 			w->g.width = (uint16_t)new_animation_w;
 			w->g.height = (uint16_t)new_animation_h;
 
-            if (w->animation_is_tag > ANIM_IN_TAG && (((w->animation_is_tag & ANIM_FADE) && w->opacity_target == w->opacity)  || ((w->g.width == 0 || w->g.height == 0) && (w->animation_dest_w == 0 || w->animation_dest_h == 0)))) {
-                w->g.x = w->pending_g.x;
-                w->g.y = w->pending_g.y;
-                if (ps->o.animation_for_next_tag < OPEN_WINDOW_ANIMATION_ZOOM) {
-                    w->g.width = w->pending_g.width;
-                    w->g.height = w->pending_g.height;
-                } else {
-                    w->g.width = 0;
-                    w->g.height = 0;
-                }
-            }
-
 			// Submit window size change
 			if (size_changed) {
 				win_on_win_size_change(ps, w);
@@ -794,9 +798,11 @@ paint_preprocess(session_t *ps, bool *fade_running, bool *animation_running) {
 				pixman_region32_clear(&w->bounding_shape);
 				pixman_region32_fini(&w->bounding_shape);
 				pixman_region32_init_rect(&w->bounding_shape, 0, 0,
-				                          (uint)w->widthb, (uint)w->heightb);
+											(uint)w->widthb, (uint)w->heightb);
 
-				win_clear_flags(w, WIN_FLAGS_PIXMAP_STALE);
+				if (w->state != WSTATE_DESTROYING)
+					win_clear_flags(w, WIN_FLAGS_PIXMAP_STALE);
+
 				win_process_image_flags(ps, w);
 			}
 			// Mark new window region with damage
@@ -813,7 +819,27 @@ paint_preprocess(session_t *ps, bool *fade_running, bool *animation_running) {
 				w->animation_velocity_y = 0.0;
 				w->animation_velocity_w = 0.0;
 				w->animation_velocity_h = 0.0;
-                w->opacity = win_calc_opacity_target(ps, w);
+			}
+
+			if (!ps->root_desktop_switch_direction) {
+				if (w->state == WSTATE_UNMAPPING || w->state == WSTATE_DESTROYING) {
+					steps = 0;
+					double new_opacity = clamp(
+									w->opacity_target_old-w->animation_progress,
+									w->opacity_target, 1);
+
+					if (new_opacity < w->opacity)
+						w->opacity = new_opacity;
+
+				} else if (w->state == WSTATE_MAPPING) {
+					steps = 0;
+					double new_opacity = clamp(
+										w->animation_progress,
+										0.0, w->opacity_target);
+
+					if (new_opacity > w->opacity)
+						w->opacity = new_opacity;
+				}
 			}
 
 			*animation_running = true;
@@ -860,7 +886,7 @@ paint_preprocess(session_t *ps, bool *fade_running, bool *animation_running) {
 		}
 	}
 
-	if (animation_running)
+	if (*animation_running)
 		ps->animation_time = now;
 
 	// Opacity will not change, from now on.
@@ -889,7 +915,10 @@ paint_preprocess(session_t *ps, bool *fade_running, bool *animation_running) {
 		if (w->state == WSTATE_UNMAPPED ||
 		    unlikely(w->base.id == ps->debug_window ||
 		             w->client_win == ps->debug_window)) {
-			to_paint = false;
+
+			if (!*fade_running || w->opacity == w->opacity_target)
+				to_paint = false;
+
 		} else if (!w->ever_damaged && w->state != WSTATE_UNMAPPING &&
 		           w->state != WSTATE_DESTROYING) {
 			// Unmapping clears w->ever_damaged, but the fact that the window
@@ -1069,13 +1098,9 @@ void root_damaged(session_t *ps) {
 		if (pixmap != XCB_NONE) {
 			ps->root_image = ps->backend_data->ops->bind_pixmap(
 			    ps->backend_data, pixmap, x_get_visual_info(ps->c, ps->vis), false);
-			if (ps->root_image) {
-				ps->backend_data->ops->set_image_property(
-				    ps->backend_data, IMAGE_PROPERTY_EFFECTIVE_SIZE,
-				    ps->root_image, (int[]){ps->root_width, ps->root_height});
-			} else {
-				log_error("Failed to bind root back pixmap");
-			}
+			ps->backend_data->ops->set_image_property(
+			    ps->backend_data, IMAGE_PROPERTY_EFFECTIVE_SIZE,
+			    ps->root_image, (int[]){ps->root_width, ps->root_height});
 		}
 	}
 
@@ -1267,6 +1292,77 @@ static inline bool write_pid(session_t *ps) {
 	fclose(f);
 
 	return true;
+}
+
+/**
+ * Update refresh rate info with X Randr extension.
+ */
+void update_refresh_rate(session_t *ps) {
+	xcb_randr_get_screen_info_reply_t *randr_info = xcb_randr_get_screen_info_reply(
+	    ps->c, xcb_randr_get_screen_info(ps->c, ps->root), NULL);
+
+	if (!randr_info)
+		return;
+	ps->refresh_rate = randr_info->rate;
+	free(randr_info);
+
+	if (ps->refresh_rate)
+		ps->refresh_intv = US_PER_SEC / ps->refresh_rate;
+	else
+		ps->refresh_intv = 0;
+}
+
+/**
+ * Initialize refresh-rated based software optimization.
+ *
+ * @return true for success, false otherwise
+ */
+static bool swopti_init(session_t *ps) {
+	log_warn("--sw-opti is going to be deprecated. If you get real benefits from "
+	         "using "
+	         "this option, please open an issue to let us know.");
+	// Prepare refresh rate
+	// Check if user provides one
+	ps->refresh_rate = ps->o.refresh_rate;
+	if (ps->refresh_rate)
+		ps->refresh_intv = US_PER_SEC / ps->refresh_rate;
+
+	// Auto-detect refresh rate otherwise
+	if (!ps->refresh_rate && ps->randr_exists) {
+		update_refresh_rate(ps);
+	}
+
+	// Turn off vsync_sw if we can't get the refresh rate
+	if (!ps->refresh_rate)
+		return false;
+
+	return true;
+}
+
+/**
+ * Modify a struct timeval timeout value to render at a fixed pace.
+ *
+ * @param ps current session
+ * @param[in,out] ptv pointer to the timeout
+ */
+static double swopti_handle_timeout(session_t *ps) {
+	if (!ps->refresh_intv)
+		return 0;
+
+	// Get the microsecond offset of the time when the we reach the timeout
+	// I don't think a 32-bit long could overflow here.
+	long offset = (get_time_timeval().tv_usec - ps->paint_tm_offset) % ps->refresh_intv;
+	// XXX this formula dones't work if refresh rate is not a whole number
+	if (offset < 0)
+		offset += ps->refresh_intv;
+
+	// If the target time is sufficiently close to a refresh time, don't add
+	// an offset, to avoid certain blocking conditions.
+	if (offset < SWOPTI_TOLERANCE || offset > ps->refresh_intv - SWOPTI_TOLERANCE)
+		return 0;
+
+	// Add an offset so we wait until the next refresh after timeout
+	return (double)(ps->refresh_intv - offset) / 1e6;
 }
 
 /**
@@ -1674,6 +1770,7 @@ static void draw_callback_impl(EV_P_ session_t *ps, int revents attr_unused) {
 	}
 	if (!animation_running) {
 		ps->animation_time = 0L;
+		ps->root_desktop_switch_direction = 0;
 	}
 
 	// TODO(yshui) Investigate how big the X critical section needs to be. There are
@@ -1683,6 +1780,7 @@ static void draw_callback_impl(EV_P_ session_t *ps, int revents attr_unused) {
 }
 
 static void draw_callback(EV_P_ ev_idle *w, int revents) {
+	// This function is not used if we are using --swopti
 	session_t *ps = session_ptr(w, draw_idle);
 
 	draw_callback_impl(EV_A_ ps, revents);
@@ -1691,6 +1789,46 @@ static void draw_callback(EV_P_ ev_idle *w, int revents) {
 	if (!ps->o.benchmark) {
 		ev_idle_stop(EV_A_ & ps->draw_idle);
 	}
+}
+
+static void delayed_draw_timer_callback(EV_P_ ev_timer *w, int revents) {
+	session_t *ps = session_ptr(w, delayed_draw_timer);
+	draw_callback_impl(EV_A_ ps, revents);
+
+	// We might have stopped the ev_idle in delayed_draw_callback,
+	// so we restart it if we are in benchmark mode
+	if (ps->o.benchmark)
+		ev_idle_start(EV_A_ & ps->draw_idle);
+}
+
+static void delayed_draw_callback(EV_P_ ev_idle *w, int revents) {
+	// This function is only used if we are using --swopti
+	session_t *ps = session_ptr(w, draw_idle);
+	assert(ps->redraw_needed);
+	assert(!ev_is_active(&ps->delayed_draw_timer));
+
+	double delay = swopti_handle_timeout(ps);
+	if (delay < 1e-6) {
+		if (!ps->o.benchmark) {
+			ev_idle_stop(EV_A_ & ps->draw_idle);
+		}
+		return draw_callback_impl(EV_A_ ps, revents);
+	}
+
+	// This is a little bit hacky. When we get to this point in code, we need
+	// to update the screen , but we will only be updating after a delay, So
+	// we want to stop the ev_idle, so this callback doesn't get call repeatedly
+	// during the delay, we also want queue_redraw to not restart the ev_idle.
+	// So we stop ev_idle and leave ps->redraw_needed to be true. (effectively,
+	// ps->redraw_needed means if redraw is needed or if draw is in progress).
+	//
+	// We do this anyway even if we are in benchmark mode. That means we will
+	// have to restart draw_idle after the draw actually happened when we are in
+	// benchmark mode.
+	ev_idle_stop(EV_A_ & ps->draw_idle);
+
+	ev_timer_set(&ps->delayed_draw_timer, delay, 0);
+	ev_timer_start(EV_A_ & ps->delayed_draw_timer);
 }
 
 static void x_event_callback(EV_P attr_unused, ev_io *w, int revents attr_unused) {
@@ -1776,6 +1914,10 @@ static session_t *session_init(int argc, char **argv, Display *dpy,
 	    .white_picture = XCB_NONE,
 	    .gaussian_map = NULL,
 
+	    .refresh_rate = 0,
+	    .refresh_intv = 0UL,
+	    .paint_tm_offset = 0L,
+
 #ifdef CONFIG_VSYNC_DRM
 	    .drm_fd = -1,
 #endif
@@ -1842,7 +1984,6 @@ static session_t *session_init(int argc, char **argv, Display *dpy,
 	ps->root = screen->root;
 	ps->root_width = screen->width_in_pixels;
 	ps->root_height = screen->height_in_pixels;
-
 
 	// Start listening to events on root earlier to catch all possible
 	// root geometry changes
@@ -2003,8 +2144,8 @@ static session_t *session_init(int argc, char **argv, Display *dpy,
 	      c2_list_postprocess(ps, ps->o.invert_color_list) &&
 	      c2_list_postprocess(ps, ps->o.opacity_rules) &&
 	      c2_list_postprocess(ps, ps->o.rounded_corners_blacklist) &&
-	      c2_list_postprocess(ps, ps->o.focus_blacklist) &&
-	      c2_list_postprocess(ps, ps->o.animation_blacklist))) {
+		  c2_list_postprocess(ps, ps->o.animation_blacklist) &&	
+	      c2_list_postprocess(ps, ps->o.focus_blacklist))) {
 		log_error("Post-processing of conditionals failed, some of your rules "
 		          "might not work");
 	}
@@ -2081,10 +2222,11 @@ static session_t *session_init(int argc, char **argv, Display *dpy,
 	}
 
 	// Query X RandR
-	if (ps->o.xinerama_shadow_crop) {
+	if ((ps->o.sw_opti && !ps->o.refresh_rate) || ps->o.xinerama_shadow_crop) {
 		if (!ps->randr_exists) {
-			log_fatal("No XRandR extension. xinerama-shadow-crop cannot be "
-			          "enabled.");
+			log_fatal("No XRandR extension. sw-opti, refresh-rate or "
+			          "xinerama-shadow-crop "
+			          "cannot be enabled.");
 			goto err;
 		}
 	}
@@ -2186,11 +2328,15 @@ static session_t *session_init(int argc, char **argv, Display *dpy,
 		}
 	}
 
+	// Initialize software optimization
+	if (ps->o.sw_opti)
+		ps->o.sw_opti = swopti_init(ps);
+
 	// Monitor screen changes if vsync_sw is enabled and we are using
 	// an auto-detected refresh rate, or when Xinerama features are enabled
-	if (ps->randr_exists && ps->o.xinerama_shadow_crop) {
+	if (ps->randr_exists &&
+	    ((ps->o.sw_opti && !ps->o.refresh_rate) || ps->o.xinerama_shadow_crop))
 		xcb_randr_select_input(ps->c, ps->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
-	}
 
 	cxinerama_upd_scrs(ps);
 
@@ -2211,10 +2357,14 @@ static session_t *session_init(int argc, char **argv, Display *dpy,
 	ev_io_init(&ps->xiow, x_event_callback, ConnectionNumber(ps->dpy), EV_READ);
 	ev_io_start(ps->loop, &ps->xiow);
 	ev_init(&ps->unredir_timer, tmout_unredir_callback);
-	ev_idle_init(&ps->draw_idle, draw_callback);
+	if (ps->o.sw_opti)
+		ev_idle_init(&ps->draw_idle, delayed_draw_callback);
+	else
+		ev_idle_init(&ps->draw_idle, draw_callback);
 
 	ev_init(&ps->fade_timer, fade_timer_callback);
 	ev_init(&ps->animation_timer, animation_timer_callback);
+	ev_init(&ps->delayed_draw_timer, delayed_draw_timer_callback);
 
 	// Set up SIGUSR1 signal handler to reset program
 	ev_signal_init(&ps->usr1_signal, reset_enable, SIGUSR1);
@@ -2296,7 +2446,6 @@ static session_t *session_init(int argc, char **argv, Display *dpy,
 		free(query_tree_reply);
 	}
 
-
 	log_debug("Initial stack:");
 	list_foreach(struct win, w, &ps->window_stack, stack_neighbour) {
 		log_debug("%#010x", w->id);
@@ -2305,16 +2454,6 @@ static session_t *session_init(int argc, char **argv, Display *dpy,
 	ps->pending_updates = true;
 
 	write_pid(ps);
-
-    // When picom starts, fetch monitor positions first. Because it won't fetch the data unless property changes.
-    if (!ps->selmon_center_x && !ps->selmon_center_y) {
-        winprop_t prop = x_get_prop(ps->c, ps->root, ps->atoms->a_NET_CURRENT_MON_CENTER, 2L, XCB_ATOM_CARDINAL, 32);
-        if (prop.nitems == 2) {
-            ps->selmon_center_x = prop.p32[0];
-            ps->selmon_center_y = prop.p32[1];
-        }
-        free_winprop(&prop);
-    }
 
 	if (fork && stderr_logger) {
 		// Remove the stderr logger if we will fork
@@ -2514,6 +2653,9 @@ static void session_destroy(session_t *ps) {
  * @param ps current session
  */
 static void session_run(session_t *ps) {
+	if (ps->o.sw_opti)
+		ps->paint_tm_offset = get_time_timeval().tv_usec;
+
 	// In benchmark mode, we want draw_idle handler to always be active
 	if (ps->o.benchmark) {
 		ev_idle_start(ps->loop, &ps->draw_idle);

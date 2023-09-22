@@ -98,19 +98,6 @@ struct win_geometry {
 	uint16_t border_width;
 };
 
-enum {
-    // dwm_mask
-    ANIM_PREV_TAG = 1,
-    ANIM_NEXT_TAG = (1 << 1),
-    ANIM_UNMAP = (1 << 2),
-    ANIM_SPECIAL_MINIMIZE = (1 << 3),
-    // animation_is_tag
-    ANIM_IN_TAG = 1,
-    ANIM_SLOW = (1 << 1),
-    ANIM_FAST = (1 << 2),
-    ANIM_FADE = (1 << 3),
-};
-
 struct managed_win {
 	struct win base;
 	/// backend data attached to this window. Only available when
@@ -153,7 +140,7 @@ struct managed_win {
 	/// bitmap for properties which needs to be updated
 	uint64_t *stale_props;
 	/// number of uint64_ts that has been allocated for stale_props
-	size_t stale_props_capacity;
+	uint64_t stale_props_capacity;
 
 	/// Bounding shape of the window. In local coordinates.
 	/// See above about coordinate systems.
@@ -167,8 +154,6 @@ struct managed_win {
 	/// opacity state, window geometry, window mapped/unmapped state,
 	/// window mode of the windows above. DOES NOT INCLUDE the body of THIS WINDOW.
 	/// NULL means reg_ignore has not been calculated for this window.
-    /// 1 = tag prev  , 2 = tag next, 4 = unmap
-    uint32_t dwm_mask;
 	rc_region_t *reg_ignore;
 	/// Whether the reg_ignore of all windows beneath this window are valid
 	bool reg_ignore_valid;
@@ -186,6 +171,8 @@ struct managed_win {
 	bool unredir_if_possible_excluded;
 	/// Whether this window is in open/close state.
 	bool in_openclose;
+	/// Whether this window was transient when animated on open
+	bool animation_transient;
 	/// Current position and destination, for animation
 	double animation_center_x,      animation_center_y;
 	double animation_dest_center_x, animation_dest_center_y;
@@ -199,11 +186,6 @@ struct managed_win {
 	/// Inverse of the window distance at the start of animation, for
 	/// tracking animation progress
 	double animation_inv_og_distance;
-    /// Animation info if it is a tag change & check if its changing window sizes
-    /// 0: no tag change
-    /// 1: normal tag change animation
-    /// 2: tag change animation that effects window size
-    uint16_t animation_is_tag;
 
 	// Client window related members
 	/// ID of the top-level client window of the window.
@@ -243,7 +225,7 @@ struct managed_win {
 	/// Previous window opacity.
 	double opacity_target_old;
 	/// true if window (or client window, for broken window managers
-	/// not transferring client window's _NET_WM_WINDOW_OPACITY value) has opacity prop
+	/// not transferring client window's _NET_WM_OPACITY value) has opacity prop
 	bool has_opacity_prop;
 	/// Cached value of opacity window attribute.
 	opacity_t opacity_prop;
@@ -287,7 +269,7 @@ struct managed_win {
 	paint_t shadow_paint;
 	/// The value of _COMPTON_SHADOW attribute of the window. Below 0 for
 	/// none.
-	long long prop_shadow;
+	long prop_shadow;
 	/// Do not paint shadow over this window.
 	bool clip_shadow_above;
 
