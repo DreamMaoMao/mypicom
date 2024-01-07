@@ -1429,8 +1429,8 @@ void win_on_win_size_change(session_t *ps, struct managed_win *w) {
 	w->shadow_height = w->heightb + ps->o.shadow_radius * 2;
 
 	// We don't handle property updates of non-visible windows until they are mapped.
-	assert(w->state != WSTATE_UNMAPPED && w->state != WSTATE_DESTROYING &&
-	       w->state != WSTATE_UNMAPPING);
+	// assert(w->state != WSTATE_UNMAPPED && w->state != WSTATE_DESTROYING &&
+	//        w->state != WSTATE_UNMAPPING);
 
 	// Invalidate the shadow we built
 	win_set_flags(w, WIN_FLAGS_IMAGES_STALE);

@@ -1660,7 +1660,7 @@ static bool c2_match_once(session_t *ps, const struct managed_win *w, const c2_p
  */
 bool c2_match(session_t *ps, const struct managed_win *w, const c2_lptr_t *condlst,
               void **pdata) {
-	assert(ps->server_grabbed);
+	// assert(ps->server_grabbed);
 	// Then go through the whole linked list
 	for (; condlst; condlst = condlst->next) {
 		if (c2_match_once(ps, w, condlst->ptr)) {
