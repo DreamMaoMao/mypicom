@@ -125,7 +125,7 @@ bool wid_get_text_prop(session_t *ps, xcb_window_t wid, xcb_atom_t prop, char **
 
 	if (type != XCB_ATOM_STRING && type != ps->atoms->aUTF8_STRING &&
 	    type != ps->atoms->aC_STRING) {
-		log_warn("Text property %d of window %#010x has unsupported type: %d",
+		log_debug("Text property %d of window %#010x has unsupported type: %d",
 		         prop, wid, type);
 		return false;
 	}
