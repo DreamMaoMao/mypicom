@@ -70,7 +70,7 @@ subdir('src')
 subdir('man')
 
 install_data('bin/picom-trans', install_dir: get_option('bindir'))
-install_data('picom.desktop', install_dir: 'share/applications')
+#install_data('picom.desktop', install_dir: 'share/applications')
 
 if get_option('compton')
 	install_data('compton.desktop', install_dir: 'share/applications')
